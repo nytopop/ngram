@@ -32,6 +32,44 @@ fn guard(x: bool) -> Option<()> {
 
 /// An iterator adaptor for the production of [n-grams](https://en.wikipedia.org/wiki/N-gram) or
 /// [k-skip-n-grams](https://en.wikipedia.org/wiki/N-gram#Skip-gram).
+///
+/// ```rust
+/// use ngram::NGram;
+///
+/// let input = "the rain in spain falls mainly on the plain";
+/// let bi_grams: Vec<_> = input
+///     .split(' ')
+///     .ngrams(2)
+///     .map(|xs| format!("{} {}", xs[0], xs[1]))
+///     .collect();
+/// let skip_grams: Vec<_> = input
+///     .split(' ')
+///     .kskip_ngrams(1, 2)
+///     .map(|xs| format!("{} {}", xs[0], xs[1]))
+///     .collect();
+///
+/// vec![
+///     "the rain", "rain in", "in spain", "spain falls",
+///     "falls mainly", "mainly on", "on the", "the plain",
+/// ]
+/// .into_iter()
+/// .map(str::to_owned)
+/// .for_each(|s| {
+///     assert!(bi_grams.contains(&s));
+///     assert!(skip_grams.contains(&s));
+/// });
+///
+/// vec![
+///     "the in", "rain spain", "in falls", "spain mainly",
+///     "falls on", "mainly the", "on plain",
+/// ]
+/// .into_iter()
+/// .map(str::to_owned)
+/// .for_each(|s| {
+///     assert!(!bi_grams.contains(&s));
+///     assert!(skip_grams.contains(&s));
+/// });
+/// ```
 pub trait NGram<T, I: Iterator<Item = T>> {
     fn ngrams(self, n: usize) -> NGrams<T, I>;
 
