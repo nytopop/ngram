@@ -129,6 +129,16 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
     default fn next(&mut self) -> Option<Self::Item> {
         self.iter_next(Clone::clone)
     }
+
+    default fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.n == 0 {
+            (0, Some(0))
+        } else {
+            let (l, u) = self.inner.size_hint();
+            let z = self.n.saturating_sub(1);
+            (l.saturating_sub(z), u.map(|x| x.saturating_sub(z)))
+        }
+    }
 }
 
 impl<T: Copy, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
@@ -270,6 +280,23 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
     default fn next(&mut self) -> Option<Self::Item> {
         self.iter_next(Clone::clone)
     }
+
+    default fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.n == 0 {
+            (0, Some(0))
+        } else {
+            let (l, u) = self.inner.size_hint();
+
+            let z = self.n.saturating_sub(1);
+            let (lx, ux) = (l.saturating_sub(z), u.map(|x| x.saturating_sub(z)));
+            (
+                // ∑ (lx - (n - 1) - Ki)
+                (0..=self.k).map(|k| lx.saturating_sub(k)).sum(),
+                // ∑ (ux - (n - 1) - Ki)
+                ux.map(|x| (0..=self.k).map(|k| x.saturating_sub(k)).sum()),
+            )
+        }
+    }
 }
 
 impl<T: Copy, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
@@ -282,56 +309,68 @@ impl<T: Copy, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
 mod test_ngram {
     use super::*;
 
-    fn str_ngrams(s: &str, n: usize) -> Vec<String> {
-        s.chars().ngrams(n).map(|g| g.iter().collect()).collect()
+    fn str_ngrams(s: &str, n: usize) -> (Vec<String>, (usize, Option<usize>)) {
+        let grams = s.chars().ngrams(n);
+        let sz = grams.size_hint();
+        (grams.map(|g| g.iter().collect()).collect(), sz)
     }
 
     #[test]
     fn ngrams() {
-        let grams = str_ngrams("abcde", 0);
-        assert_eq!(0, grams.len());
+        let (g, sz) = str_ngrams("abcde", 0);
+        assert_eq!(0, g.len());
+        assert_eq!((0, Some(g.len())), sz);
 
-        let grams = str_ngrams("abcde", 1);
-        assert_eq!(vec!["a", "b", "c", "d", "e"], grams);
+        let (g, sz) = str_ngrams("abcde", 1);
+        assert_eq!(vec!["a", "b", "c", "d", "e"], g);
+        assert_eq!((2, Some(g.len())), sz);
 
-        let grams = str_ngrams("abcde", 2);
-        assert_eq!(vec!["ab", "bc", "cd", "de"], grams);
+        let (g, sz) = str_ngrams("abcde", 2);
+        assert_eq!(vec!["ab", "bc", "cd", "de"], g);
+        assert_eq!((1, Some(g.len())), sz);
 
-        let grams = str_ngrams("abcde", 3);
-        assert_eq!(vec!["abc", "bcd", "cde"], grams);
+        let (g, sz) = str_ngrams("abcde", 3);
+        assert_eq!(vec!["abc", "bcd", "cde"], g);
+        assert_eq!((0, Some(g.len())), sz);
     }
 
-    fn str_kskip_ngrams(s: &str, k: usize, n: usize) -> Vec<String> {
-        s.chars()
-            .kskip_ngrams(k, n)
-            .map(|g| g.iter().collect())
-            .collect()
+    fn str_kskip_ngrams(s: &str, k: usize, n: usize) -> (Vec<String>, (usize, Option<usize>)) {
+        let grams = s.chars().kskip_ngrams(k, n);
+        let sz = grams.size_hint();
+        (grams.map(|g| g.iter().collect()).collect(), sz)
     }
 
     #[test]
     fn kskip_ngrams() {
-        let grams = str_kskip_ngrams("abcde", 0, 0);
-        assert_eq!(0, grams.len());
+        let (g, sz) = str_kskip_ngrams("abcde", 0, 0);
+        assert_eq!(0, g.len());
+        assert_eq!((0, Some(g.len())), sz,);
 
-        let grams = str_kskip_ngrams("abcde", 1, 0);
-        assert_eq!(0, grams.len());
+        let (g, sz) = str_kskip_ngrams("abcde", 1, 0);
+        assert_eq!(0, g.len());
+        assert_eq!((0, Some(g.len())), sz,);
 
-        let grams = str_kskip_ngrams("abcde", 2, 0);
-        assert_eq!(0, grams.len());
+        let (g, sz) = str_kskip_ngrams("abcde", 2, 0);
+        assert_eq!(0, g.len());
+        assert_eq!((0, Some(g.len())), sz,);
 
-        let grams = str_kskip_ngrams("abcde", 0, 1);
-        assert_eq!(vec!["a", "b", "c", "d", "e"], grams);
+        let (g, sz) = str_kskip_ngrams("abcde", 0, 1);
+        assert_eq!(vec!["a", "b", "c", "d", "e"], g);
+        assert_eq!((2, Some(g.len())), sz,);
 
-        let grams = str_kskip_ngrams("abcde", 0, 2);
-        assert_eq!(vec!["ab", "bc", "cd", "de"], grams);
+        let (g, sz) = str_kskip_ngrams("abcde", 0, 2);
+        assert_eq!(vec!["ab", "bc", "cd", "de"], g);
+        assert_eq!((1, Some(g.len())), sz,);
 
-        let grams = str_kskip_ngrams("abcde", 1, 2);
-        assert_eq!(vec!["ab", "ac", "bc", "bd", "cd", "ce", "de"], grams);
+        let (g, sz) = str_kskip_ngrams("abcde", 1, 2);
+        assert_eq!(vec!["ab", "ac", "bc", "bd", "cd", "ce", "de"], g);
+        assert_eq!((1, Some(g.len())), sz,);
 
-        let grams = str_kskip_ngrams("abcde", 2, 2);
+        let (g, sz) = str_kskip_ngrams("abcde", 2, 2);
         assert_eq!(
             vec!["ab", "ac", "ad", "bc", "bd", "be", "cd", "ce", "de"],
-            grams,
+            g,
         );
+        assert_eq!((1, Some(g.len())), sz,);
     }
 }
