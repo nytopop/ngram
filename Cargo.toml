@@ -1,0 +1,13 @@
+[package]
+name = "ngram"
+version = "0.1.0"
+authors = ["nytopop <ericizoita@gmail.com>"]
+edition = "2018"
+license = "MIT"
+description = "Iterator adaptors for n-grams and k-skip-n-grams."
+homepage = "https://github.com/nytopop/ngram"
+repository = "https://github.com/nytopop/ngram"
+documentation = "https://docs.rs/ngram"
+keywords = ["n-gram", "skip-gram", "gram", "skip", "n"]
+
+[dependencies]
