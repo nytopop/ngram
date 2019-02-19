@@ -18,17 +18,9 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
-#![feature(specialization)]
+#![feature(test, specialization)]
 
 use std::collections::VecDeque;
-
-fn guard(x: bool) -> Option<()> {
-    if x {
-        Some(())
-    } else {
-        None
-    }
-}
 
 /// An iterator adaptor for the production of [n-grams](https://en.wikipedia.org/wiki/N-gram) or
 /// [k-skip-n-grams](https://en.wikipedia.org/wiki/N-gram#Skip-gram).
@@ -115,7 +107,7 @@ impl<T, I: Iterator<Item = T>> NGrams<T, I> {
             }
             Some(self.buf.iter().map(copy).collect())
         } else {
-            drop(self.buf.pop_front());
+            self.buf.pop_front();
             self.buf.push_back(self.inner.next()?);
 
             Some(self.buf.iter().map(copy).collect())
@@ -176,84 +168,61 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
         Some(())
     }
 
-    fn reset(&mut self) {
-        for i in 0..self.n {
-            self.idx[i] = i;
-        }
+    fn ngram<F: Fn(&T) -> T>(&self, copy: F) -> Vec<T> {
+        self.peek_buf.iter().take(self.n).map(copy).collect()
     }
 
-    fn find_skip_index(&mut self) -> Option<usize> {
-        let mut i = self.n - 1;
-        while self.idx[i] - self.idx[i - 1] > self.k {
-            i -= 1;
-            guard(i != 0)?;
-        }
-        Some(i)
-    }
-
-    fn next_skip(&mut self) -> bool {
-        if let Some(mut i) = self.find_skip_index() {
-            self.idx[i] += 1;
-            while i < self.n - 1 {
-                self.idx[i + 1] = self.idx[i] + 1;
-                i += 1;
-            }
-            true
-        } else {
-            self.reset();
-            false
-        }
-    }
-
-    fn skip_is_valid(&self) -> bool {
-        for &i in &self.idx {
-            if i >= self.peek_buf.len() {
-                return false;
-            }
-        }
-        true
-    }
-
-    fn try_skip<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        if self.next_skip() {
-            let mut is_valid = self.skip_is_valid();
-            if is_valid {
-                return self.elems(copy);
-            } else {
-                while !is_valid {
-                    if !self.next_skip() {
-                        return None;
-                    }
-
-                    is_valid = self.skip_is_valid();
-                    if is_valid {
-                        return self.elems(copy);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn try_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        if let Some(elt) = self.inner.next() {
-            self.peek_buf.pop_front();
-            self.peek_buf.push_back(elt);
-            self.ngram(copy)
-        } else if self.peek_buf.len() > self.n {
-            self.peek_buf.pop_front();
-            self.ngram(copy)
+    fn first_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+        if self.peek_buf.len() < self.n {
+            self.fill()?;
+            Some(self.ngram(copy))
         } else {
             None
         }
     }
 
-    fn elems<F: Fn(&T) -> T>(&self, copy: F) -> Option<Vec<T>> {
-        Some(self.idx.iter().map(|&i| copy(&self.peek_buf[i])).collect())
+    fn elems<F: Fn(&T) -> T>(&self, copy: F) -> Vec<T> {
+        self.idx.iter().map(|&i| copy(&self.peek_buf[i])).collect()
     }
 
-    fn ngram<F: Fn(&T) -> T>(&self, copy: F) -> Option<Vec<T>> {
-        Some(self.peek_buf.iter().take(self.n).map(copy).collect())
+    fn next_kskip_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+        let mut i = self.n - 1;
+        while self.idx[i] - self.idx[i - 1] > self.k {
+            if i == 1 {
+                for i in 0..self.n {
+                    self.idx[i] = i;
+                }
+                return None;
+            }
+
+            i -= 1;
+        }
+
+        self.idx[i] += 1;
+        for j in i..self.n - 1 {
+            self.idx[j + 1] = self.idx[j] + 1;
+        }
+
+        for &i in &self.idx[i..] {
+            if i >= self.peek_buf.len() {
+                return self.next_kskip_ngram(copy);
+            }
+        }
+
+        Some(self.elems(copy))
+    }
+
+    fn next_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+        if let Some(elt) = self.inner.next() {
+            self.peek_buf.pop_front();
+            self.peek_buf.push_back(elt);
+            Some(self.ngram(copy))
+        } else if self.peek_buf.len() > self.n {
+            self.peek_buf.pop_front();
+            Some(self.ngram(copy))
+        } else {
+            None
+        }
     }
 
     fn iter_next<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
@@ -262,15 +231,12 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
         }
 
         if self.n == 1 {
-            return Some(vec![self.inner.next()?]);
+            return self.inner.next().map(|e| vec![e]);
         }
 
-        if self.peek_buf.len() < self.n {
-            self.fill()?;
-            return self.ngram(copy);
-        }
-
-        self.try_skip(&copy).or_else(|| self.try_ngram(copy))
+        self.first_ngram(&copy)
+            .or_else(|| self.next_kskip_ngram(&copy))
+            .or_else(|| self.next_ngram(&copy))
     }
 }
 
@@ -290,9 +256,9 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
             let z = self.n.saturating_sub(1);
             let (lx, ux) = (l.saturating_sub(z), u.map(|x| x.saturating_sub(z)));
             (
-                // ∑ (lx - (n - 1) - Ki)
+                // ∑ (l - (n - 1) - Ki)
                 (0..=self.k).map(|k| lx.saturating_sub(k)).sum(),
-                // ∑ (ux - (n - 1) - Ki)
+                // ∑ (u - (n - 1) - Ki)
                 ux.map(|x| (0..=self.k).map(|k| x.saturating_sub(k)).sum()),
             )
         }
@@ -307,6 +273,8 @@ impl<T: Copy, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
 
 #[cfg(test)]
 mod test_ngram {
+    extern crate test;
+    use self::test::Bencher;
     use super::*;
 
     fn str_ngrams(s: &str, n: usize) -> (Vec<String>, (usize, Option<usize>)) {
@@ -372,5 +340,17 @@ mod test_ngram {
             g,
         );
         assert_eq!((1, Some(g.len())), sz,);
+    }
+
+    #[bench]
+    fn bench_ngrams(b: &mut Bencher) {
+        b.iter(|| (0..12).for_each(|n| (0..48).ngrams(n).for_each(|_| {})))
+    }
+
+    #[bench]
+    fn bench_kskip_ngrams(b: &mut Bencher) {
+        b.iter(|| {
+            (0..3).for_each(|k| (0..4).for_each(|n| (0..21).kskip_ngrams(k, n).for_each(|_| {})))
+        })
     }
 }
