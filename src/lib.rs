@@ -109,7 +109,6 @@ impl<T, I: Iterator<Item = T>> NGrams<T, I> {
         } else {
             self.buf.pop_front();
             self.buf.push_back(self.inner.next()?);
-
             Some(self.buf.iter().map(copy).collect())
         }
     }
@@ -151,7 +150,15 @@ pub struct KSkipNGrams<T, I: Iterator<Item = T>> {
 }
 
 impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
-    fn fill(&mut self) -> Option<()> {
+    fn ngram<F: Fn(&T) -> T>(&self, copy: F) -> Vec<T> {
+        self.idx.iter().map(|&i| copy(&self.peek_buf[i])).collect()
+    }
+
+    fn first_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+        if self.peek_buf.len() >= self.n {
+            return None;
+        }
+
         while self.peek_buf.len() < self.n {
             let elt = self.inner.next()?;
             self.peek_buf.push_back(elt);
@@ -165,24 +172,7 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
             }
         }
 
-        Some(())
-    }
-
-    fn ngram<F: Fn(&T) -> T>(&self, copy: F) -> Vec<T> {
-        self.peek_buf.iter().take(self.n).map(copy).collect()
-    }
-
-    fn first_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        if self.peek_buf.len() < self.n {
-            self.fill()?;
-            Some(self.ngram(copy))
-        } else {
-            None
-        }
-    }
-
-    fn elems<F: Fn(&T) -> T>(&self, copy: F) -> Vec<T> {
-        self.idx.iter().map(|&i| copy(&self.peek_buf[i])).collect()
+        Some(self.ngram(copy))
     }
 
     fn next_kskip_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
@@ -209,7 +199,7 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
             }
         }
 
-        Some(self.elems(copy))
+        Some(self.ngram(copy))
     }
 
     fn next_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
@@ -226,17 +216,14 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
     }
 
     fn iter_next<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        if self.n == 0 {
-            return None;
+        match self.n {
+            0 => None,
+            1 => self.inner.next().map(|e| vec![e]),
+            _ => self
+                .first_ngram(&copy)
+                .or_else(|| self.next_kskip_ngram(&copy))
+                .or_else(|| self.next_ngram(&copy)),
         }
-
-        if self.n == 1 {
-            return self.inner.next().map(|e| vec![e]);
-        }
-
-        self.first_ngram(&copy)
-            .or_else(|| self.next_kskip_ngram(&copy))
-            .or_else(|| self.next_ngram(&copy))
     }
 }
 
