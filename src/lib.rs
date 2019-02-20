@@ -122,12 +122,13 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
     }
 
     default fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.n == 0 {
-            (0, Some(0))
-        } else {
-            let (l, u) = self.inner.size_hint();
-            let z = self.n.saturating_sub(1);
-            (l.saturating_sub(z), u.map(|x| x.saturating_sub(z)))
+        match self.n {
+            0 => (0, Some(0)),
+            1 => self.inner.size_hint(),
+            n => {
+                let (l, u) = self.inner.size_hint();
+                (l.saturating_sub(n - 1), u.map(|x| x.saturating_sub(n - 1)))
+            }
         }
     }
 }
@@ -235,19 +236,19 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
     }
 
     default fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.n == 0 {
-            (0, Some(0))
-        } else {
-            let (l, u) = self.inner.size_hint();
-
-            let z = self.n.saturating_sub(1);
-            let (lx, ux) = (l.saturating_sub(z), u.map(|x| x.saturating_sub(z)));
-            (
-                // ∑ (l - (n - 1) - Ki)
-                (0..=self.k).map(|k| lx.saturating_sub(k)).sum(),
-                // ∑ (u - (n - 1) - Ki)
-                ux.map(|x| (0..=self.k).map(|k| x.saturating_sub(k)).sum()),
-            )
+        match self.n {
+            0 => (0, Some(0)),
+            1 => self.inner.size_hint(),
+            n => {
+                let (l, u) = self.inner.size_hint();
+                let (lx, ux) = (l.saturating_sub(n - 1), u.map(|x| x.saturating_sub(n - 1)));
+                (
+                    // ∑ (l - (n - 1) - Ki)
+                    (0..=self.k).map(|k| lx.saturating_sub(k)).sum(),
+                    // ∑ (u - (n - 1) - Ki)
+                    ux.map(|x| (0..=self.k).map(|k| x.saturating_sub(k)).sum()),
+                )
+            }
         }
     }
 }
