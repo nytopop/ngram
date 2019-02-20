@@ -22,6 +22,26 @@
 
 use std::collections::VecDeque;
 
+/// Ensure that a condition holds within a Fn(...) -> Option<T>.
+///
+/// Optionally, execute one or more statements if it doesn't.
+macro_rules! guard {
+    ($e:expr) => {
+        if !$e {
+            return None;
+        }
+    };
+
+    ($e:expr; $($do:expr),+) => {
+        if !$e {
+            $(
+                $do;
+            )+
+            return None;
+        }
+    };
+}
+
 /// An iterator adaptor for the production of [n-grams](https://en.wikipedia.org/wiki/N-gram) or
 /// [k-skip-n-grams](https://en.wikipedia.org/wiki/N-gram#Skip-gram).
 ///
@@ -99,9 +119,9 @@ pub struct NGrams<T, I: Iterator<Item = T>> {
 
 impl<T, I: Iterator<Item = T>> NGrams<T, I> {
     fn iter_next<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        if self.n == 0 {
-            None
-        } else if self.buf.len() < self.n {
+        guard! { self.n > 0 };
+
+        if self.buf.len() < self.n {
             while self.buf.len() < self.n {
                 self.buf.push_back(self.inner.next()?);
             }
@@ -156,9 +176,7 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
     }
 
     fn first_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        if self.peek_buf.len() >= self.n {
-            return None;
-        }
+        guard! { self.peek_buf.len() < self.n };
 
         while self.peek_buf.len() < self.n {
             let elt = self.inner.next()?;
@@ -179,13 +197,9 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
     fn next_kskip_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
         let mut i = self.n - 1;
         while self.idx[i] - self.idx[i - 1] > self.k {
-            if i == 1 {
-                for i in 0..self.n {
-                    self.idx[i] = i;
-                }
-                return None;
-            }
-
+            guard! {i > 1;
+                (0..self.n).for_each(|j| self.idx[j] = j)
+            };
             i -= 1;
         }
 
