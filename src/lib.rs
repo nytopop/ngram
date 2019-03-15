@@ -314,34 +314,34 @@ mod test_ngram {
     fn kskip_ngrams() {
         let (g, sz) = str_kskip_ngrams("abcde", 0, 0);
         assert_eq!(0, g.len());
-        assert_eq!((0, Some(g.len())), sz,);
+        assert_eq!((0, Some(g.len())), sz);
 
         let (g, sz) = str_kskip_ngrams("abcde", 1, 0);
         assert_eq!(0, g.len());
-        assert_eq!((0, Some(g.len())), sz,);
+        assert_eq!((0, Some(g.len())), sz);
 
         let (g, sz) = str_kskip_ngrams("abcde", 2, 0);
         assert_eq!(0, g.len());
-        assert_eq!((0, Some(g.len())), sz,);
+        assert_eq!((0, Some(g.len())), sz);
 
         let (g, sz) = str_kskip_ngrams("abcde", 0, 1);
         assert_eq!(vec!["a", "b", "c", "d", "e"], g);
-        assert_eq!((2, Some(g.len())), sz,);
+        assert_eq!((2, Some(g.len())), sz);
 
         let (g, sz) = str_kskip_ngrams("abcde", 0, 2);
         assert_eq!(vec!["ab", "bc", "cd", "de"], g);
-        assert_eq!((1, Some(g.len())), sz,);
+        assert_eq!((1, Some(g.len())), sz);
 
         let (g, sz) = str_kskip_ngrams("abcde", 1, 2);
         assert_eq!(vec!["ab", "ac", "bc", "bd", "cd", "ce", "de"], g);
-        assert_eq!((1, Some(g.len())), sz,);
+        assert_eq!((1, Some(g.len())), sz);
 
         let (g, sz) = str_kskip_ngrams("abcde", 2, 2);
         assert_eq!(
             vec!["ab", "ac", "ad", "bc", "bd", "be", "cd", "ce", "de"],
             g,
         );
-        assert_eq!((1, Some(g.len())), sz,);
+        assert_eq!((1, Some(g.len())), sz);
     }
 
     #[bench]
