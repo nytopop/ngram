@@ -125,12 +125,12 @@ impl<T, I: Iterator<Item = T>> NGrams<T, I> {
             while self.buf.len() < self.n {
                 self.buf.push_back(self.inner.next()?);
             }
-            Some(self.buf.iter().map(copy).collect())
         } else {
             self.buf.pop_front();
             self.buf.push_back(self.inner.next()?);
-            Some(self.buf.iter().map(copy).collect())
         }
+
+        Some(self.buf.iter().map(copy).collect())
     }
 }
 
