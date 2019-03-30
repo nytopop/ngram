@@ -122,10 +122,12 @@ impl<T, I: Iterator<Item = T>> NGrams<T, I> {
         guard! { self.n > 0 };
 
         if self.buf.len() < self.n {
+            // fill self.buf with exactly self.n elements.
             while self.buf.len() < self.n {
                 self.buf.push_back(self.inner.next()?);
             }
         } else {
+            // shift self.buf by 1 element from self.inner.
             self.buf.pop_front();
             self.buf.push_back(self.inner.next()?);
         }
@@ -176,13 +178,20 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
     }
 
     fn first_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+        // if self.peek_buf is already filled, the first ngram has already
+        // been consumed.
         guard! { self.peek_buf.len() < self.n };
 
+        // fill self.peek_buf to at least self.n elements. if we can't, we
+        // bail because there can't be ngrams in self.inner.
         while self.peek_buf.len() < self.n {
             let elt = self.inner.next()?;
             self.peek_buf.push_back(elt);
         }
 
+        // fill self.peek_buf to the width of the widest kskip-ngram. if we
+        // can't, there should still be some shorter ngrams or kskip-ngrams
+        // available, so we don't bail yet.
         while self.peek_buf.len() < (self.n.saturating_sub(1) * self.k) + self.n {
             if let Some(elt) = self.inner.next() {
                 self.peek_buf.push_back(elt);
@@ -195,34 +204,48 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
     }
 
     fn next_kskip_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        let mut i = self.n - 1;
-        while self.idx[i] - self.idx[i - 1] > self.k {
-            guard! {i > 1;
-                (0..self.n).for_each(|j| self.idx[j] = j)
-            };
-            i -= 1;
-        }
-
-        self.idx[i] += 1;
-        for j in i..self.n - 1 {
-            self.idx[j + 1] = self.idx[j] + 1;
-        }
-
-        for &i in &self.idx[i..] {
-            if i >= self.peek_buf.len() {
-                return self.next_kskip_ngram(copy);
+        'outer: loop {
+            // select the next index to increment, where the maximum difference
+            // to an adjacent index is self.k (the skip value).
+            let mut i = self.n - 1;
+            while self.idx[i] - self.idx[i - 1] > self.k {
+                guard! {i > 1;
+                    // if i <= 1, we've passed the last index permutation that
+                    // produces a valid kskip-ngram, so we reset them and bail.
+                    (0..self.n).for_each(|j| self.idx[j] = j)
+                };
+                i -= 1;
             }
-        }
 
-        Some(self.ngram(copy))
+            // increment the selected index, and reset any following indices
+            // to count up by 1 starting at the index that was incremented.
+            self.idx[i] += 1;
+            for j in i..self.n - 1 {
+                self.idx[j + 1] = self.idx[j] + 1;
+            }
+
+            // if any of the newly assigned indices lay outside the bounds of
+            // self.peek_buf, we try the next set of indices.
+            for &i in &self.idx[i..] {
+                if i >= self.peek_buf.len() {
+                    continue 'outer;
+                }
+            }
+
+            return Some(self.ngram(copy));
+        }
     }
 
     fn next_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
         if let Some(elt) = self.inner.next() {
+            // there is at least one more element in self.inner, so we consume
+            // it and shift self.peek_buf.
             self.peek_buf.pop_front();
             self.peek_buf.push_back(elt);
             Some(self.ngram(copy))
         } else if self.peek_buf.len() > self.n {
+            // there are no more elements in self.inner, but self.peek_buf has
+            // excess elements and can be shifted to produce the next ngram.
             self.peek_buf.pop_front();
             Some(self.ngram(copy))
         } else {
