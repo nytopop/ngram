@@ -204,7 +204,7 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
     }
 
     fn next_kskip_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        'outer: loop {
+        loop {
             // select the next index to increment, where the maximum difference
             // to an adjacent index is self.k (the skip value).
             let mut i = self.n - 1;
@@ -224,12 +224,10 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
                 self.idx[j + 1] = self.idx[j] + 1;
             }
 
-            // if any of the newly assigned indices lay outside the bounds of
+            // if the last (and highest) index falls outside the bounds of
             // self.peek_buf, we try the next set of indices.
-            for &i in &self.idx[i..] {
-                if i >= self.peek_buf.len() {
-                    continue 'outer;
-                }
+            if self.idx[self.n - 1] >= self.peek_buf.len() {
+                continue;
             }
 
             return Some(self.ngram(copy));
