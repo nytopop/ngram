@@ -7,10 +7,7 @@ matrix:
   allow_failures:
     - rust: stable
     - rust: beta
-before_script:
-  - rustup component add clippy
 cache: cargo
 script:
-  - cargo clippy --all-targets --all-features -- -D warnings
   - cargo build --verbose
   - cargo test --verbose
