@@ -17,8 +17,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
-
-#![feature(test, specialization)]
+#![feature(test)]
 
 use std::collections::VecDeque;
 
@@ -117,8 +116,10 @@ pub struct NGrams<T, I: Iterator<Item = T>> {
     n: usize,
 }
 
-impl<T, I: Iterator<Item = T>> NGrams<T, I> {
-    fn iter_next<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+impl<T: Clone, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
+    type Item = Vec<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         guard! { self.n > 0 };
 
         if self.buf.len() < self.n {
@@ -132,18 +133,10 @@ impl<T, I: Iterator<Item = T>> NGrams<T, I> {
             self.buf.push_back(self.inner.next()?);
         }
 
-        Some(self.buf.iter().map(copy).collect())
-    }
-}
-
-impl<T: Clone, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
-    type Item = Vec<T>;
-
-    default fn next(&mut self) -> Option<Self::Item> {
-        self.iter_next(Clone::clone)
+        Some(self.buf.iter().cloned().collect())
     }
 
-    default fn size_hint(&self) -> (usize, Option<usize>) {
+    fn size_hint(&self) -> (usize, Option<usize>) {
         match self.n {
             0 => (0, Some(0)),
             1 => self.inner.size_hint(),
@@ -152,12 +145,6 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
                 (l.saturating_sub(n - 1), u.map(|x| x.saturating_sub(n - 1)))
             }
         }
-    }
-}
-
-impl<T: Copy, I: Iterator<Item = T>> Iterator for NGrams<T, I> {
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter_next(|&x| x)
     }
 }
 
@@ -172,9 +159,9 @@ pub struct KSkipNGrams<T, I: Iterator<Item = T>> {
     n: usize,
 }
 
-impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
-    fn ngram<F: Fn(&T) -> T>(&self, copy: F) -> Vec<T> {
-        self.idx.iter().map(|&i| copy(&self.peek_buf[i])).collect()
+impl<T: Clone, I: Iterator<Item = T>> KSkipNGrams<T, I> {
+    fn ngram(&self) -> Vec<T> {
+        self.idx.iter().map(|&i| self.peek_buf[i].clone()).collect()
     }
 
     fn take(&mut self) -> Option<()> {
@@ -186,7 +173,7 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
         self.peek_buf.len() == n
     }
 
-    fn first_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+    fn first_ngram(&mut self) -> Option<Vec<T>> {
         // if self.peek_buf is already filled, the first ngram has already
         // been consumed.
         guard! { self.peek_buf.len() < self.n };
@@ -200,10 +187,10 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
         // available, so we don't bail yet.
         self.fill_exact((self.n.saturating_sub(1) * self.k) + self.n);
 
-        Some(self.ngram(copy))
+        Some(self.ngram())
     }
 
-    fn next_kskip_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+    fn next_kskip_ngram(&mut self) -> Option<Vec<T>> {
         loop {
             // select an index to increment, where the maximum difference
             // to an adjacent index is self.k (the skip value).
@@ -230,11 +217,11 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
                 continue;
             }
 
-            return Some(self.ngram(copy));
+            return Some(self.ngram());
         }
     }
 
-    fn next_ngram<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
+    fn next_ngram(&mut self) -> Option<Vec<T>> {
         // ensure that either another element has been added to
         // self.peek_buf, or that self.inner is exhausted and we
         // still have an extra element for the next ngram.
@@ -244,29 +231,25 @@ impl<T, I: Iterator<Item = T>> KSkipNGrams<T, I> {
 
         self.peek_buf.pop_front();
 
-        Some(self.ngram(copy))
-    }
-
-    fn iter_next<F: Fn(&T) -> T>(&mut self, copy: F) -> Option<Vec<T>> {
-        match self.n {
-            0 => None,
-            1 => self.inner.next().map(|e| vec![e]),
-            _ => self
-                .first_ngram(&copy)
-                .or_else(|| self.next_kskip_ngram(&copy))
-                .or_else(|| self.next_ngram(&copy)),
-        }
+        Some(self.ngram())
     }
 }
 
 impl<T: Clone, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
     type Item = Vec<T>;
 
-    default fn next(&mut self) -> Option<Self::Item> {
-        self.iter_next(Clone::clone)
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.n {
+            0 => None,
+            1 => self.inner.next().map(|e| vec![e]),
+            _ => self
+                .first_ngram()
+                .or_else(|| self.next_kskip_ngram())
+                .or_else(|| self.next_ngram()),
+        }
     }
 
-    default fn size_hint(&self) -> (usize, Option<usize>) {
+    fn size_hint(&self) -> (usize, Option<usize>) {
         match self.n {
             0 => (0, Some(0)),
             1 => self.inner.size_hint(),
@@ -281,12 +264,6 @@ impl<T: Clone, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
                 )
             }
         }
-    }
-}
-
-impl<T: Copy, I: Iterator<Item = T>> Iterator for KSkipNGrams<T, I> {
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter_next(|&x| x)
     }
 }
 
